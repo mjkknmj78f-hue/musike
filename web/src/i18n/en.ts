@@ -429,6 +429,11 @@ export const en = {
     ytdlpMissing: "yt-dlp wasn't found. No song plays without it.",
     ytdlpUpdate: (version: string) => `New yt-dlp version available (${version})`,
   },
+  daylist: {
+    label: "Your daylist",
+    count: (n: number) => `${n} songs for right now · changes through the day`,
+    refresh: "New mix",
+  },
   save: {
     action: "Save to library",
     short: "Save",

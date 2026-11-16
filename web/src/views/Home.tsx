@@ -1,11 +1,13 @@
-import { ClockCounterClockwiseIcon, HeartIcon, MagnifyingGlassIcon, PlayIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { ArrowsClockwiseIcon, ClockCounterClockwiseIcon, HeartIcon, MagnifyingGlassIcon, PlayIcon, SunHorizonIcon } from "@phosphor-icons/react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { Artwork } from "../components/Artwork";
 import { LogoMark } from "../components/Brand";
 import { PageHeader, Section } from "../components/Page";
 import { TrackList, TrackListSkeleton } from "../components/TrackList";
 import { useT } from "../i18n";
+import { capabilities } from "../lib/api";
+import { DAYLIST_ID, refreshDaylist, syncDaylist } from "../lib/daylist";
 import { paths } from "../lib/routes";
 import type { Track } from "../lib/types";
 import { usePlayer } from "../player/player";
@@ -51,6 +53,67 @@ function RecentCard({ track, onPlay }: { track: Track; onPlay: () => void }) {
   );
 }
 
+/** The time-of-day playlist: changes every morning, afternoon, evening and night. */
+function DaylistCard() {
+  const daylist = useLibrary((s) => s.playlists.find((p) => p.id === DAYLIST_ID));
+  const load = useLibrary((s) => s.load);
+  const playList = usePlayer((s) => s.playList);
+  const [busy, setBusy] = useState(false);
+  const t = useT();
+
+  // The server rebuilds it when the time of day changes; pick up a newer one than the library we loaded.
+  useEffect(() => {
+    if (!capabilities.engineSettings) return;
+    void syncDaylist().then((d) => {
+      if (d && d.name !== useLibrary.getState().playlists.find((p) => p.id === DAYLIST_ID)?.name) void load();
+    });
+  }, [load]);
+
+  if (!daylist?.tracks.length) return null;
+  const [, title = daylist.name] = daylist.name.split(" · ");
+  const covers = daylist.tracks.slice(0, 4);
+
+  return (
+    <div className="mx-4 mb-6 flex items-center gap-4 overflow-hidden rounded-[20px] bg-linear-to-br from-accent-soft to-surface-2 p-4 ring-1 ring-line md:mx-6 md:p-5">
+      <Link to={paths.playlist(DAYLIST_ID)} className="grid size-20 shrink-0 grid-cols-2 overflow-hidden rounded-[14px] md:size-24">
+        {covers.map((c) => (
+          <Artwork key={c.id} src={c.thumb} className="size-full" />
+        ))}
+      </Link>
+      <Link to={paths.playlist(DAYLIST_ID)} className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-accent-text">
+          <SunHorizonIcon size={14} weight="bold" /> {t.daylist.label}
+        </span>
+        <span className="mt-0.5 block text-lg leading-tight font-semibold tracking-tight md:text-xl">{title}</span>
+        <span className="mt-0.5 block text-[13px] text-fg-2">{t.daylist.count(daylist.tracks.length)}</span>
+      </Link>
+      <button
+        type="button"
+        disabled={busy}
+        aria-label={t.daylist.refresh}
+        title={t.daylist.refresh}
+        onClick={async () => {
+          setBusy(true);
+          await refreshDaylist();
+          await load();
+          setBusy(false);
+        }}
+        className="grid size-11 shrink-0 place-items-center rounded-full bg-surface-3 hover:bg-surface-4 disabled:opacity-50"
+      >
+        <ArrowsClockwiseIcon size={18} className={busy ? "animate-spin" : ""} />
+      </button>
+      <button
+        type="button"
+        onClick={() => playList(daylist.tracks, 0)}
+        aria-label={t.common.playX(title)}
+        className="grid size-12 shrink-0 place-items-center rounded-full bg-accent text-accent-ink shadow-[0_6px_18px_rgb(0_0_0/0.3)] active:scale-95"
+      >
+        <PlayIcon size={20} weight="fill" />
+      </button>
+    </div>
+  );
+}
+
 export default function Home() {
   const { favorites, playlists, history, status } = useLibrary();
   const playList = usePlayer((s) => s.playList);
@@ -66,6 +129,8 @@ export default function Home() {
       <div className="px-4 pt-2 pb-6 md:px-6 md:pt-8">
         <h1 className="text-[28px] leading-tight font-semibold tracking-tight md:text-4xl">{t.time.greeting(new Date().getHours())}</h1>
       </div>
+
+      <DaylistCard />
 
       {status === "loading" && <TrackListSkeleton rows={6} />}
 

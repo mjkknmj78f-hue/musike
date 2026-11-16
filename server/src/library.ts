@@ -112,6 +112,17 @@ export async function createPlaylist(name: string, tracks: Track[] = []): Promis
   return playlist;
 }
 
+/** Creates or replaces a playlist with a fixed id (e.g. the daylist), kept at the top of the list. */
+export async function upsertPlaylist(id: string, name: string, tracks: Track[]): Promise<Playlist> {
+  const lib = await load();
+  const now = Date.now();
+  const old = lib.playlists.find((p) => p.id === id);
+  const playlist: Playlist = { id, name: name.trim().slice(0, 80), createdAt: old?.createdAt ?? now, updatedAt: now, tracks };
+  lib.playlists = [playlist, ...lib.playlists.filter((p) => p.id !== id)];
+  await persist();
+  return playlist;
+}
+
 export async function renamePlaylist(pid: string, name: string): Promise<Playlist> {
   const lib = await load();
   const p = findPlaylist(lib, pid);

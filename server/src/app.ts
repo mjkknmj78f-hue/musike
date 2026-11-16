@@ -14,6 +14,7 @@ import { refreshTools, type Tools } from "./tools.js";
 import { HttpError, VIDEO_ID } from "./types.js";
 import { downloadHd, pruneCache, resolveStreams } from "./ytdlp.js";
 import { clearFinished, enqueue, listJobs, saveEnabled, type AlbumInfo } from "./save.js";
+import { ensureDaylist, recordPlay, startDaylistTimer } from "./daylist.js";
 
 function videoId(params: unknown): string {
   const id = (params as { id?: string }).id ?? "";
@@ -174,7 +175,16 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
 
   app.delete("/api/favorites/:id", async (req) => ({ favorites: await library.removeFavorite(videoId(req.params)) }));
 
-  app.post("/api/history", async (req) => ({ history: await library.pushHistory(library.sanitizeTrack(req.body)) }));
+  app.post("/api/history", async (req) => {
+    const track = library.sanitizeTrack(req.body);
+    recordPlay(track).catch(() => {});
+    return { history: await library.pushHistory(track) };
+  });
+
+  // Daylist: a playlist for this time of day (see daylist.ts)
+
+  app.get("/api/daylist", async () => ({ daylist: await ensureDaylist() }));
+  app.post("/api/daylist/refresh", async () => ({ daylist: await ensureDaylist(true) }));
 
   app.post("/api/playlists", async (req) => {
     const body = (req.body ?? {}) as { name?: unknown; tracks?: unknown };
@@ -238,6 +248,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   await app.listen({ port, host });
 
   pruneCache().catch(() => {});
+  startDaylistTimer();
   return { port, tools: found, close: () => app.close() };
 }
 

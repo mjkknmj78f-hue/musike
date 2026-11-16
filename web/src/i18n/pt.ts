@@ -423,6 +423,11 @@ export const pt: Messages = {
     ytdlpMissing: "O yt-dlp não foi encontrado. Sem ele nenhuma música toca.",
     ytdlpUpdate: (version) => `Nova versão do yt-dlp disponível (${version})`,
   },
+  daylist: {
+    label: "Seu daylist",
+    count: (n) => `${n} músicas para agora · muda ao longo do dia`,
+    refresh: "Nova mistura",
+  },
   save: {
     action: "Salvar na biblioteca",
     short: "Salvar",
