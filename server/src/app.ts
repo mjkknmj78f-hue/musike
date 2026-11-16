@@ -218,15 +218,16 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
 
   app.get("/api/save", () => ({ enabled: saveEnabled(), jobs: saveEnabled() ? listJobs() : [] }));
 
-  app.post("/api/save", async (req) => {
-    const body = (req.body ?? {}) as { tracks?: unknown; album?: Partial<AlbumInfo> };
+  app.post("/api/save", { bodyLimit: 25 * 1024 * 1024 }, async (req) => {
+    const body = (req.body ?? {}) as { tracks?: unknown; album?: Partial<AlbumInfo>; playlist?: unknown };
     if (!Array.isArray(body.tracks)) throw new HttpError(400, msg("tracksRequired"));
     const a = body.album;
     const album =
       a && typeof a.title === "string"
         ? { title: a.title.slice(0, 200), artist: String(a.artist ?? "").slice(0, 200), year: /^\d{4}$/.test(String(a.year)) ? String(a.year) : undefined }
         : undefined;
-    return { added: enqueue(body.tracks.slice(0, 500).map(library.sanitizeTrack), album), jobs: listJobs() };
+    const playlist = typeof body.playlist === "string" && body.playlist.trim() ? body.playlist.slice(0, 120) : undefined;
+    return { added: enqueue(body.tracks.slice(0, 5000).map(library.sanitizeTrack), album, playlist), jobs: listJobs() };
   });
 
   app.delete("/api/save/finished", () => ({ jobs: clearFinished() }));

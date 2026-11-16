@@ -54,6 +54,8 @@ const jobs: SaveJob[] = [];
 const pending: Work[] = [];
 let active = 0;
 let scanTimer: NodeJS.Timeout | null = null;
+/** Playlists waiting for their songs: written as .m3u files once the queue empties. */
+const playlists = new Map<string, string[]>();
 
 export const saveEnabled = () => !!config.saveDir;
 
@@ -92,9 +94,10 @@ export function clearFinished(): SaveJob[] {
 }
 
 /** Queues tracks. With `album`, they're numbered in the order given and share its artist and year. */
-export function enqueue(tracks: Track[], album?: AlbumInfo): SaveJob[] {
+export function enqueue(tracks: Track[], album?: AlbumInfo, playlist?: string): SaveJob[] {
   if (!config.saveDir) throw new HttpError(404, msg("routeNotFound"));
   const added: SaveJob[] = [];
+  const files: string[] = [];
   tracks.forEach((t, i) => {
     if (!VIDEO_ID.test(t.id)) return;
     const track: Track = album ? { ...t, album: album.title || t.album } : t;
@@ -108,6 +111,7 @@ export function enqueue(tracks: Track[], album?: AlbumInfo): SaveJob[] {
       job: undefined as unknown as SaveJob,
     };
     const file = targetPath(work);
+    files.push(file);
     // The same file already queued or saving: don't download it twice.
     if (jobs.some((j) => j.file === file && (j.status === "queued" || j.status === "saving"))) return;
     work.job = {
@@ -124,8 +128,10 @@ export function enqueue(tracks: Track[], album?: AlbumInfo): SaveJob[] {
     pending.push(work);
     added.push(work.job);
   });
+  if (playlist) playlists.set(safeName(playlist, "Playlist"), files);
   trim();
   pump();
+  if (playlist && !active && !pending.length) void finishBatch();
   return added;
 }
 
@@ -145,7 +151,7 @@ function pump() {
       .catch(() => {})
       .finally(() => {
         active--;
-        if (!active && !pending.length) scheduleScan();
+        if (!active && !pending.length) void finishBatch();
         pump();
       });
   }
@@ -275,6 +281,30 @@ function ffmpeg(args: string[]): Promise<void> {
     child.on("error", reject);
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`FFmpeg: ${stderr.trim().slice(-240)}`))));
   });
+}
+
+async function finishBatch() {
+  await writePlaylists().catch(() => {});
+  scheduleScan();
+}
+
+/**
+ * Writes each saved playlist as <save dir>/Playlists/<name>.m3u, listing the songs that made it to disk.
+ * Navidrome imports .m3u files from its music folder as playlists, so the playlist shows up there too
+ * (and in phone apps that download for offline listening).
+ */
+async function writePlaylists() {
+  if (!playlists.size) return;
+  const dir = path.join(config.saveDir!, "Playlists");
+  await mkdir(dir, { recursive: true });
+  for (const [name, files] of [...playlists]) {
+    playlists.delete(name);
+    const lines = files.filter((f) => existsSync(path.join(config.saveDir!, f))).map((f) => `../${f.split(path.sep).join("/")}`);
+    if (!lines.length) continue;
+    const dest = path.join(dir, `${name}.m3u`);
+    await writeFile(`${dest}.part`, `#EXTM3U\n#PLAYLIST:${name}\n${lines.join("\n")}\n`);
+    await rename(`${dest}.part`, dest);
+  }
 }
 
 /** Asks Navidrome to rescan a few seconds after the queue empties, so one album triggers one scan. */

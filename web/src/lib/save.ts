@@ -32,7 +32,7 @@ interface SaveState {
   /** Jobs of the current batch, for "Saving 3 of 12" and the summary when it ends. */
   batch: string[];
   init: () => Promise<void>;
-  save: (tracks: Track[], album?: AlbumInfo) => Promise<void>;
+  save: (tracks: Track[], album?: AlbumInfo, playlist?: string) => Promise<void>;
 }
 
 const isActive = (j: SaveJob) => j.status === "queued" || j.status === "saving";
@@ -84,11 +84,11 @@ export const useSave = create<SaveState>((set, get) => {
         set({ enabled: false });
       }
     },
-    save: async (tracks, album) => {
+    save: async (tracks, album, playlist) => {
       const t = getT();
       if (!tracks.length) return;
       try {
-        const r = await call<{ added: SaveJob[]; jobs: SaveJob[] }>("/api/save", { method: "POST", json: { tracks, album } });
+        const r = await call<{ added: SaveJob[]; jobs: SaveJob[] }>("/api/save", { method: "POST", json: { tracks, album, playlist } });
         if (!r.added.length) {
           toast(t.save.alreadySaving);
           return;

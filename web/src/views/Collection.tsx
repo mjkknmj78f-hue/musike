@@ -1,4 +1,4 @@
-import { DotsThreeIcon, MagnifyingGlassIcon, PauseIcon, PencilSimpleIcon, PlayIcon, ShuffleIcon, TrashIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, DownloadSimpleIcon, MagnifyingGlassIcon, PauseIcon, PencilSimpleIcon, PlayIcon, ShuffleIcon, TrashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Cover, type CoverKind } from "../components/Cover";
@@ -13,6 +13,7 @@ import { paths } from "../lib/routes";
 import type { Track } from "../lib/types";
 import { usePlayer } from "../player/player";
 import { useLibrary } from "../stores/library";
+import { useSave } from "../lib/save";
 
 interface Props {
   kind: CoverKind;
@@ -31,6 +32,7 @@ export default function Collection({ kind }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const t = useT();
+  const canSave = useSave((s) => s.enabled);
 
   const playlist = kind === "playlist" ? lib.playlists.find((p) => p.id === id) : undefined;
   const tracks: Track[] = kind === "favorites" ? lib.favorites : kind === "history" ? lib.history : playlist?.tracks ?? [];
@@ -106,6 +108,16 @@ export default function Collection({ kind }: Props) {
         >
           <ShuffleIcon size={24} />
         </IconButton>
+        {canSave && kind !== "history" && tracks.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void useSave.getState().save(tracks, undefined, name)}
+            className="flex h-11 items-center gap-2 rounded-full bg-surface-3 px-4 text-sm font-medium transition-transform hover:bg-surface-4 active:scale-[0.97]"
+          >
+            <DownloadSimpleIcon size={18} /> <span className="hidden sm:inline">{t.save.saveAlbum}</span>
+            <span className="sm:hidden">{t.save.short}</span>
+          </button>
+        )}
         {kind === "playlist" && (
           <IconButton label={t.collection.more} size="lg" onClick={() => setMoreOpen(true)}>
             <DotsThreeIcon size={26} weight="bold" />
