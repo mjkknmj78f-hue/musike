@@ -1,13 +1,16 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { createWriteStream } from "node:fs";
 import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { config } from "./config.js";
 import { tools } from "./tools.js";
 import { msg } from "./i18n.js";
 import { HttpError, VIDEO_ID, type Track } from "./types.js";
-import { downloadAudioFile } from "./ytdlp.js";
+import { contentLength, getStream } from "./upstream.js";
+import { invalidate, resolveStreams } from "./ytdlp.js";
 
 /**
  * "Save to library": downloads tracks as tagged M4A files into a music folder (MUSIKE_SAVE_DIR) that a music
@@ -158,7 +161,7 @@ async function save(w: Work) {
   job.status = "saving";
   const tmp = path.join(config.cacheDir, "save", job.key);
   try {
-    const audio = await downloadAudioFile(job.id, tmp);
+    const audio = await downloadAudio(job.id, tmp);
     const cover = await fetchCover(w.track, tmp);
     const out = path.join(tmp, "out.m4a");
     await tag(audio, cover, out, w);
@@ -179,6 +182,46 @@ async function save(w: Work) {
     job.at = Date.now();
     await rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+const CHUNK = 10 * 1024 * 1024;
+
+/**
+ * Downloads a track's audio (the same stream Musike plays) into `dir`, in ranged chunks like yt-dlp, through the
+ * retrying fetcher in upstream.ts. Re-resolves the stream once if googlevideo keeps refusing it.
+ */
+async function downloadAudio(id: string, dir: string): Promise<string> {
+  await mkdir(dir, { recursive: true });
+  for (let round = 0; round < 2; round++) {
+    if (round) invalidate(id);
+    const { audio } = await resolveStreams(id);
+    const file = path.join(dir, audio.mime === "audio/webm" ? "audio.webm" : "audio.m4a");
+    const total = contentLength(audio.url);
+    const out = createWriteStream(file);
+    try {
+      if (!total) {
+        const res = await getStream(audio.url, audio.headers);
+        if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`);
+        await pipeline(res, out);
+        return file;
+      }
+      for (let start = 0; start < total; start += CHUNK) {
+        const res = await getStream(audio.url, audio.headers, { start, end: Math.min(start + CHUNK, total) - 1 });
+        if (res.statusCode !== 200 && res.statusCode !== 206) {
+          res.resume();
+          throw new Error(`YouTube refused the download (HTTP ${res.statusCode})`);
+        }
+        await pipeline(res, out, { end: false });
+      }
+      out.end();
+      await new Promise<void>((r) => out.on("close", () => r()));
+      return file;
+    } catch (e) {
+      out.destroy();
+      if (round) throw e;
+    }
+  }
+  throw new Error("unreachable");
 }
 
 /** The album art as a JPEG, or null: a song saves fine without one. */

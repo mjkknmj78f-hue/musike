@@ -1,16 +1,32 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { Readable } from "node:stream";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { msg } from "./i18n.js";
 import { HttpError } from "./types.js";
+import { contentLength, getStream } from "./upstream.js";
 import { invalidate, resolveStreams, type StreamFormat } from "./ytdlp.js";
 
-const PASS_HEADERS = ["content-length", "content-range", "accept-ranges", "last-modified"];
+const PASS_HEADERS = ["last-modified"];
+
+/** Largest slice sent per request; the media element asks for the rest as it plays. */
+const CHUNK = 16 * 1024 * 1024;
+
+/** A browser `Range: bytes=…` against a stream of `total` bytes, or null when absent or unreadable. */
+function parseRange(header: unknown, total: number): { start: number; end: number } | null {
+  const m = typeof header === "string" ? /bytes=(\d*)-(\d*)/.exec(header) : null;
+  if (!m || (!m[1] && !m[2])) return null;
+  if (!m[1]) {
+    const n = Number(m[2]);
+    return { start: Math.max(0, total - n), end: total - 1 };
+  }
+  const start = Number(m[1]);
+  const end = m[2] ? Math.min(Number(m[2]), total - 1) : total - 1;
+  return { start, end };
+}
 
 /**
- * Proxies a googlevideo stream, forwarding Range so the browser can seek natively.
- * googlevideo URLs are bound to the IP that resolved them, so the bytes must flow through this server.
+ * Proxies a googlevideo stream with seeking. googlevideo URLs are bound to the IP that resolved them, so the bytes
+ * must flow through this server; see upstream.ts for why ranges go in the query string and 403s are retried.
  */
 export async function proxyStream(req: FastifyRequest, reply: FastifyReply, id: string, kind: "audio" | "video") {
   const pick = async (fresh: boolean): Promise<StreamFormat> => {
@@ -26,37 +42,61 @@ export async function proxyStream(req: FastifyRequest, reply: FastifyReply, id: 
     if (!reply.raw.writableFinished) controller.abort();
   });
 
-  const request = async (fmt: StreamFormat) => {
-    const headers: Record<string, string> = { ...fmt.headers };
-    const range = req.headers.range;
-    if (typeof range === "string") headers.Range = range;
-    return fetch(fmt.url, { headers, signal: controller.signal });
+  const open = async (fmt: StreamFormat) => {
+    const total = contentLength(fmt.url);
+    if (!total) {
+      // Size unknown (e.g. some progressive formats): pass the browser's Range through as a header.
+      const res = await getStream(fmt.url, fmt.headers, undefined, controller.signal, req.headers.range);
+      return { res, total: null, slice: null };
+    }
+    const wanted = parseRange(req.headers.range, total) ?? { start: 0, end: total - 1 };
+    if (wanted.start >= total) return { res: null, total, slice: null };
+    const slice = { start: wanted.start, end: Math.min(wanted.end, wanted.start + CHUNK - 1) };
+    const res = await getStream(fmt.url, fmt.headers, slice, controller.signal);
+    return { res, total, slice };
   };
 
   let fmt = await pick(false);
-  let upstream = await request(fmt);
-  // Expired or rejected URL: resolve again once.
-  if (upstream.status === 403 || upstream.status === 410) {
-    await upstream.body?.cancel();
+  let up = await open(fmt);
+  // Expired, or still refused after retries on fresh connections: resolve again once.
+  if (up.res && (up.res.statusCode === 403 || up.res.statusCode === 410)) {
+    up.res.resume();
     fmt = await pick(true);
-    upstream = await request(fmt);
+    up = await open(fmt);
   }
-  if (!upstream.ok || !upstream.body) {
-    throw new HttpError(502, msg("streamRefused", { status: upstream.status }), "maybe_outdated");
+  if (up.total && !up.res) {
+    reply.code(416).header("content-range", `bytes */${up.total}`);
+    return reply.send();
+  }
+  const res = up.res!;
+  const status = res.statusCode ?? 502;
+  if (status < 200 || status >= 300) {
+    res.resume();
+    throw new HttpError(502, msg("streamRefused", { status }), "maybe_outdated");
   }
 
-  reply.code(upstream.status);
   reply.header("content-type", fmt.mime);
   reply.header("cache-control", "no-store");
+  reply.header("accept-ranges", "bytes");
   for (const h of PASS_HEADERS) {
-    const v = upstream.headers.get(h);
-    if (v) reply.header(h, v);
+    const v = res.headers[h];
+    if (typeof v === "string") reply.header(h, v);
   }
-  if (!upstream.headers.get("accept-ranges")) reply.header("accept-ranges", "bytes");
-
-  const body = Readable.fromWeb(upstream.body as any);
-  body.on("error", () => body.destroy());
-  return reply.send(body);
+  if (up.total && up.slice) {
+    const { start, end } = up.slice;
+    const partial = typeof req.headers.range === "string" || end < up.total - 1;
+    reply.code(partial ? 206 : 200);
+    if (partial) reply.header("content-range", `bytes ${start}-${end}/${up.total}`);
+    reply.header("content-length", end - start + 1);
+  } else {
+    reply.code(status);
+    for (const h of ["content-length", "content-range"]) {
+      const v = res.headers[h];
+      if (typeof v === "string") reply.header(h, v);
+    }
+  }
+  res.on("error", () => res.destroy());
+  return reply.send(res);
 }
 
 /** Serves a local file with byte-range support (used for cached HD video). */
