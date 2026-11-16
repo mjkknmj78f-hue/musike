@@ -24,6 +24,17 @@ export const config = {
   /** YouTube Music language when a request doesn't say (the app always does). */
   lang: process.env.MUSIKE_LANG ?? "en",
   location: process.env.MUSIKE_LOCATION ?? "BR",
+  /**
+   * Music library folder that "Save to library" downloads into, e.g. a Navidrome or Jellyfin music folder.
+   * Unset turns the feature off. Files land in <dir>/<Album artist>/<Album>/<NN - Title>.m4a.
+   */
+  saveDir: process.env.MUSIKE_SAVE_DIR || null,
+  /** Optional: tell Navidrome to rescan after saving, so new songs show up straight away (Subsonic API). */
+  navidrome: {
+    url: (process.env.NAVIDROME_URL ?? "").replace(/\/+$/, ""),
+    user: process.env.NAVIDROME_USER ?? "",
+    pass: process.env.NAVIDROME_PASS ?? "",
+  },
   /** HTTP for youtubei.js; the platform's own fetch here (the Android app passes its native one). */
   fetch: undefined as typeof fetch | undefined,
 };

@@ -1,12 +1,21 @@
-import { CheckCircleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, DownloadSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useT } from "../i18n";
+import { useSave } from "../lib/save";
 import { useUi } from "../stores/ui";
 
 export function Toasts() {
   const toasts = useUi((s) => s.toasts);
   const dismiss = useUi((s) => s.dismissToast);
   const t = useT();
+  // A primitive "done/total" string, so the pill only re-renders when the count changes.
+  const counts = useSave((s) => {
+    if (!s.batch.length) return "";
+    const batch = s.jobs.filter((j) => s.batch.includes(j.key));
+    const left = batch.filter((j) => j.status === "queued" || j.status === "saving").length;
+    return left ? `${batch.length - left}/${batch.length}` : "";
+  });
+  const progress = counts ? { done: Number(counts.split("/")[0]), total: Number(counts.split("/")[1]) } : null;
 
   return (
     <div
@@ -14,6 +23,19 @@ export function Toasts() {
       className="pointer-events-none fixed inset-x-0 bottom-[calc(140px+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 md:bottom-28"
     >
       <AnimatePresence initial={false}>
+        {progress && (
+          <motion.div
+            key="save-progress"
+            layout
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center gap-2 rounded-full border border-line-strong bg-surface-2 px-3 py-1.5 text-[13px] text-fg-2 shadow-[0_8px_30px_rgb(0_0_0/0.3)]"
+          >
+            <DownloadSimpleIcon size={16} className="animate-pulse text-accent-text" />
+            {t.save.progress(progress.done, progress.total)}
+          </motion.div>
+        )}
         {toasts.map((toast) => (
           <motion.div
             key={toast.id}

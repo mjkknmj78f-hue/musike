@@ -13,6 +13,7 @@ import { presentJob, startJob, systemInfo, type Channel } from "./system.js";
 import { refreshTools, type Tools } from "./tools.js";
 import { HttpError, VIDEO_ID } from "./types.js";
 import { downloadHd, pruneCache, resolveStreams } from "./ytdlp.js";
+import { clearFinished, enqueue, listJobs, saveEnabled, type AlbumInfo } from "./save.js";
 
 function videoId(params: unknown): string {
   const id = (params as { id?: string }).id ?? "";
@@ -202,6 +203,23 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   app.delete("/api/playlists/:pid/tracks/:id", async (req) =>
     library.removeFromPlaylist((req.params as { pid: string }).pid, videoId(req.params)),
   );
+
+  // Save to library: downloads into MUSIKE_SAVE_DIR (e.g. Navidrome's music folder)
+
+  app.get("/api/save", () => ({ enabled: saveEnabled(), jobs: saveEnabled() ? listJobs() : [] }));
+
+  app.post("/api/save", async (req) => {
+    const body = (req.body ?? {}) as { tracks?: unknown; album?: Partial<AlbumInfo> };
+    if (!Array.isArray(body.tracks)) throw new HttpError(400, msg("tracksRequired"));
+    const a = body.album;
+    const album =
+      a && typeof a.title === "string"
+        ? { title: a.title.slice(0, 200), artist: String(a.artist ?? "").slice(0, 200), year: /^\d{4}$/.test(String(a.year)) ? String(a.year) : undefined }
+        : undefined;
+    return { added: enqueue(body.tracks.slice(0, 500).map(library.sanitizeTrack), album), jobs: listJobs() };
+  });
+
+  app.delete("/api/save/finished", () => ({ jobs: clearFinished() }));
 
   // Web app (production build)
 

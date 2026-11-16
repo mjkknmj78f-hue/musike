@@ -429,6 +429,21 @@ export const en = {
     ytdlpMissing: "yt-dlp wasn't found. No song plays without it.",
     ytdlpUpdate: (version: string) => `New yt-dlp version available (${version})`,
   },
+  save: {
+    action: "Save to library",
+    short: "Save",
+    saveAlbum: "Save to library",
+    started: (n: number) => (n === 1 ? "Saving to your library…" : `Saving ${n} songs to your library…`),
+    alreadySaving: "Already being saved",
+    progress: (done: number, total: number) => `Saving to library · ${done} of ${total}`,
+    finished: (saved: number, had: number) =>
+      saved === 0 && had > 0
+        ? had === 1 ? "Already in your library" : `All ${had} already in your library`
+        : `${saved === 1 ? "1 song" : `${saved} songs`} saved to your library${had ? ` (${had} already there)` : ""}`,
+    someFailed: (saved: number, failed: number, reason: string) =>
+      `${saved} saved, ${failed} couldn't be saved${reason ? `: ${reason}` : ""}`,
+    failed: (reason: string) => `Couldn't save: ${reason}`,
+  },
 };
 
 export type Messages = typeof en;

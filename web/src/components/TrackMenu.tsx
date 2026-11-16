@@ -1,5 +1,6 @@
 import {
   ArrowSquareOutIcon,
+  DownloadSimpleIcon,
   HeartIcon,
   ListPlusIcon,
   PlayIcon,
@@ -14,6 +15,7 @@ import { createPortal } from "react-dom";
 import { MD, useMediaQuery } from "../hooks/useMediaQuery";
 import { useT } from "../i18n";
 import { cn } from "../lib/format";
+import { useSave } from "../lib/save";
 import { usePlayer } from "../player/player";
 import { useLibrary } from "../stores/library";
 import { useUi } from "../stores/ui";
@@ -42,6 +44,7 @@ export function TrackMenu() {
   const close = useUi((s) => s.closeMenu);
   const openAddToPlaylist = useUi((s) => s.openAddToPlaylist);
   const isFavorite = useLibrary((s) => (menu ? s.favorites.some((t) => t.id === menu.track.id) : false));
+  const canSave = useSave((s) => s.enabled);
   const isMd = useMediaQuery(MD);
   const box = useRef<HTMLDivElement>(null);
   const t = useT();
@@ -96,6 +99,11 @@ export function TrackMenu() {
       <Item icon={<PlaylistIcon size={18} />} onClick={() => openAddToPlaylist([menu.track])}>
         {t.trackMenu.addToPlaylist}
       </Item>
+      {canSave && (
+        <Item icon={<DownloadSimpleIcon size={18} />} onClick={run(() => void useSave.getState().save([menu.track]))}>
+          {t.save.action}
+        </Item>
+      )}
       {menu.playlistId && (
         <Item
           danger

@@ -423,4 +423,18 @@ export const pt: Messages = {
     ytdlpMissing: "O yt-dlp não foi encontrado. Sem ele nenhuma música toca.",
     ytdlpUpdate: (version) => `Nova versão do yt-dlp disponível (${version})`,
   },
+  save: {
+    action: "Salvar na biblioteca",
+    short: "Salvar",
+    saveAlbum: "Salvar na biblioteca",
+    started: (n) => (n === 1 ? "Salvando na sua biblioteca…" : `Salvando ${n} músicas na sua biblioteca…`),
+    alreadySaving: "Já está sendo salva",
+    progress: (done, total) => `Salvando na biblioteca · ${done} de ${total}`,
+    finished: (saved, had) =>
+      saved === 0 && had > 0
+        ? had === 1 ? "Já está na sua biblioteca" : `Todas as ${had} já estão na sua biblioteca`
+        : `${saved === 1 ? "1 música salva" : `${saved} músicas salvas`} na sua biblioteca${had ? ` (${had} já estavam)` : ""}`,
+    someFailed: (saved, failed, reason) => `${saved} salvas, ${failed} não puderam ser salvas${reason ? `: ${reason}` : ""}`,
+    failed: (reason) => `Não foi possível salvar: ${reason}`,
+  },
 };

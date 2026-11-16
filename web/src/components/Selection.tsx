@@ -1,7 +1,8 @@
-import { CheckIcon, HeartIcon, PlayIcon, PlaylistIcon, VideoCameraIcon } from "@phosphor-icons/react";
+import { CheckIcon, DownloadSimpleIcon, HeartIcon, PlayIcon, PlaylistIcon, VideoCameraIcon } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { cn, formatTime } from "../lib/format";
+import { useSave } from "../lib/save";
 import type { Track } from "../lib/types";
 import { selectCurrent, usePlayer } from "../player/player";
 import { useLibrary } from "../stores/library";
@@ -95,6 +96,7 @@ export function SelectionBar({
   const addFavorites = useLibrary((s) => s.addFavorites);
   const openAddToPlaylist = useUi((s) => s.openAddToPlaylist);
   const toPlay = chosen.length ? chosen : all;
+  const canSave = useSave((s) => s.enabled);
   const t = useT();
 
   return (
@@ -127,6 +129,14 @@ export function SelectionBar({
         />
         <Action icon={<HeartIcon size={16} />} label={t.common.favorite} disabled={!chosen.length} onClick={() => void addFavorites(chosen)} />
         <Action icon={<PlaylistIcon size={16} />} label={t.common.playlist} disabled={!chosen.length} onClick={() => openAddToPlaylist(chosen)} />
+        {canSave && (
+          <Action
+            icon={<DownloadSimpleIcon size={16} />}
+            label={t.save.short}
+            disabled={!chosen.length}
+            onClick={() => void useSave.getState().save(chosen)}
+          />
+        )}
       </div>
     </div>
   );

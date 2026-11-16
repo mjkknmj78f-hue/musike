@@ -1,4 +1,4 @@
-import { ArrowRightIcon, MusicNotesIcon, PauseIcon, PlayIcon, PlaylistIcon, ShuffleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, DownloadSimpleIcon, MusicNotesIcon, PauseIcon, PlayIcon, PlaylistIcon, ShuffleIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { Artwork } from "../components/Artwork";
@@ -10,6 +10,7 @@ import { useRemote } from "../hooks/useRemote";
 import { useI18n, useT } from "../i18n";
 import { api } from "../lib/api";
 import { shuffled } from "../lib/format";
+import { useSave, yearOf } from "../lib/save";
 import { paths } from "../lib/routes";
 import type { AlbumPage } from "../lib/types";
 import { usePlayer } from "../player/player";
@@ -29,6 +30,7 @@ export default function Album() {
   const createPlaylist = useLibrary((s) => s.createPlaylist);
   const [saved, setSaved] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const canSave = useSave((s) => s.enabled);
 
   const album = page.status === "ok" ? page.data : null;
   const tracks = album?.tracks ?? [];
@@ -105,6 +107,18 @@ export default function Album() {
               className="ml-1 flex h-11 items-center gap-2 rounded-full bg-surface-3 px-4 text-sm font-medium transition-transform hover:bg-surface-4 active:scale-[0.97] disabled:opacity-60"
             >
               <PlaylistIcon size={18} /> {t.album.saveAsPlaylist}
+            </button>
+          )}
+          {canSave && (
+            <button
+              type="button"
+              onClick={() =>
+                void useSave.getState().save(tracks, { title: album.title, artist: album.artist, year: yearOf(album.kind) ?? yearOf(album.info) })
+              }
+              className="flex h-11 items-center gap-2 rounded-full bg-surface-3 px-4 text-sm font-medium transition-transform hover:bg-surface-4 active:scale-[0.97]"
+            >
+              <DownloadSimpleIcon size={18} /> <span className="hidden sm:inline">{t.save.saveAlbum}</span>
+              <span className="sm:hidden">{t.save.short}</span>
             </button>
           )}
         </div>

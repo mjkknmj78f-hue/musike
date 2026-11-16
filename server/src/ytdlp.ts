@@ -277,6 +277,28 @@ export function downloadHd(id: string): Promise<string> {
   return job;
 }
 
+/**
+ * Downloads a track's best audio (AAC in M4A when YouTube has it, else Opus) into `dir`, for saving to a music
+ * library. Returns the file's path. The caller owns `dir` and cleans it up.
+ */
+export async function downloadAudioFile(id: string, dir: string): Promise<string> {
+  await mkdir(dir, { recursive: true });
+  await run(
+    [
+      "--no-playlist",
+      "--no-warnings",
+      "--no-part",
+      "-f", "ba[ext=m4a]/ba",
+      "-o", path.join(dir, "audio.%(ext)s"),
+      `https://www.youtube.com/watch?v=${id}`,
+    ],
+    DOWNLOAD_TIMEOUT_MS,
+  );
+  const file = (await readdir(dir)).find((n) => n.startsWith("audio."));
+  if (!file) throw new HttpError(502, msg("ytdlpFailed"), "maybe_outdated");
+  return path.join(dir, file);
+}
+
 export async function ytdlpSearch(query: string, limit = 20) {
   const stdout = await run(["-J", "--flat-playlist", "--no-warnings", `ytsearch${limit}:${query}`], RESOLVE_TIMEOUT_MS);
   const data = JSON.parse(stdout) as {

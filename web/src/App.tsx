@@ -16,6 +16,7 @@ import { useShortcuts } from "./hooks/useShortcuts";
 import { getT } from "./i18n";
 import { capabilities } from "./lib/api";
 import { cn } from "./lib/format";
+import { useSave } from "./lib/save";
 import { legacyRedirect, NOW_PLAYING_HASH, paths } from "./lib/routes";
 import { usePlayer } from "./player/player";
 import { useLibrary } from "./stores/library";
@@ -49,6 +50,11 @@ export default function App() {
   useEffect(() => {
     void loadLibrary();
   }, [loadLibrary]);
+
+  // "Save to library" only exists on a server with a music folder set (never on Android).
+  useEffect(() => {
+    if (capabilities.engineSettings) void useSave.getState().init();
+  }, []);
 
   // Check yt-dlp shortly after start and say so once if something needs doing (not on Android: no yt-dlp there).
   useEffect(() => {
