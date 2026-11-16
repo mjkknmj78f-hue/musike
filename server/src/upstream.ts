@@ -46,9 +46,28 @@ export async function getStream(
   if (rangeHeader && !range) clean.Range = rangeHeader;
   let res: IncomingMessage | null = null;
   for (let i = 0; i < ATTEMPTS; i++) {
-    res = await get(target, clean, signal);
+    try {
+      res = await follow(target, clean, signal);
+    } catch (e) {
+      // A connection dropped mid-handshake is as retryable as a 403; an abort is not.
+      if (signal?.aborted || i === ATTEMPTS - 1) throw e;
+      continue;
+    }
     if (res.statusCode !== 403) return res;
     res.resume(); // drain and drop this connection, then try another
   }
   return res!;
+}
+
+/** googlevideo redirects to other edge servers; follow like fetch would (the range stays in the query string). */
+async function follow(url: string, headers: Record<string, string>, signal?: AbortSignal): Promise<IncomingMessage> {
+  let current = url;
+  for (let hop = 0; hop < 5; hop++) {
+    const res = await get(current, headers, signal);
+    const location = res.headers.location;
+    if (!res.statusCode || res.statusCode < 300 || res.statusCode >= 400 || !location) return res;
+    res.resume();
+    current = new URL(location, current).toString();
+  }
+  throw new Error("googlevideo redirected too many times");
 }
