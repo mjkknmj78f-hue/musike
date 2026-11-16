@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createWriteStream } from "node:fs";
-import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { config } from "./config.js";
@@ -56,6 +56,51 @@ let active = 0;
 let scanTimer: NodeJS.Timeout | null = null;
 /** Playlists waiting for their songs: written as .m3u files once the queue empties. */
 const playlists = new Map<string, string[]>();
+
+/**
+ * Which YouTube ids are already saved, and where (relative to the save folder), so Musike plays its own copy
+ * instead of streaming from YouTube. Kept in data/saved.json; rebuilt from the files' tags when missing.
+ */
+let saved: Record<string, string> = {};
+const indexFile = () => path.join(config.dataDir, "saved.json");
+
+function remember(id: string, file: string) {
+  saved[id] = file;
+  writeFile(indexFile(), JSON.stringify(saved)).catch(() => {});
+}
+
+/** Absolute path of the saved copy of `id`, or null. */
+export function savedFile(id: string): string | null {
+  const rel = config.saveDir ? saved[id] : undefined;
+  if (!rel) return null;
+  const abs = path.join(config.saveDir!, rel);
+  return existsSync(abs) ? abs : null;
+}
+
+export async function loadSavedIndex() {
+  if (!config.saveDir) return;
+  try {
+    saved = JSON.parse(await readFile(indexFile(), "utf8"));
+    return;
+  } catch {}
+  // No index yet: every file Musike saved carries its YouTube link in the comment tag, near the start.
+  const walk = async (dir: string): Promise<void> => {
+    for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (e.name.endsWith(".m4a")) {
+        const fh = await open(p, "r").catch(() => null);
+        if (!fh) continue;
+        const buf = Buffer.alloc(256 * 1024);
+        const { bytesRead } = await fh.read(buf, 0, buf.length, 0).finally(() => fh.close());
+        const m = /youtube\.com\/watch\?v=([\w-]{11})/.exec(buf.subarray(0, bytesRead).toString("latin1"));
+        if (m) saved[m[1]!] = path.relative(config.saveDir!, p);
+      }
+    }
+  };
+  await walk(config.saveDir);
+  await writeFile(indexFile(), JSON.stringify(saved)).catch(() => {});
+}
 
 export const saveEnabled = () => !!config.saveDir;
 
@@ -162,6 +207,7 @@ async function save(w: Work) {
   const dest = path.join(config.saveDir!, job.file!);
   if (existsSync(dest)) {
     job.status = "exists";
+    if (!saved[job.id]) remember(job.id, job.file!);
     return;
   }
   job.status = "saving";
@@ -181,6 +227,7 @@ async function save(w: Work) {
     const folderCover = path.join(path.dirname(dest), "cover.jpg");
     if (cover && !existsSync(folderCover)) await copyFile(cover, folderCover).catch(() => {});
     job.status = "done";
+    remember(job.id, job.file!);
   } catch (e) {
     job.status = "error";
     job.error = (e as Error).message.slice(0, 300);

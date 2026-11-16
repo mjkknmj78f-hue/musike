@@ -7,13 +7,13 @@ import { config } from "./config.js";
 import * as library from "./library.js";
 import { fileStorage } from "./libraryFile.js";
 import { findVideoFor, radio, search, suggestions } from "./search.js";
-import { proxyStream, serveFile } from "./stream.js";
+import { proxyStream, serveFile, warmHead } from "./stream.js";
 import { langOf, msg, tr } from "./i18n.js";
 import { presentJob, startJob, systemInfo, type Channel } from "./system.js";
 import { refreshTools, type Tools } from "./tools.js";
 import { HttpError, VIDEO_ID } from "./types.js";
 import { downloadHd, pruneCache, resolveStreams } from "./ytdlp.js";
-import { clearFinished, enqueue, listJobs, saveEnabled, type AlbumInfo } from "./save.js";
+import { clearFinished, enqueue, listJobs, loadSavedIndex, savedFile, saveEnabled, type AlbumInfo } from "./save.js";
 import { ensureDaylist, recordPlay, startDaylistTimer } from "./daylist.js";
 
 function videoId(params: unknown): string {
@@ -130,11 +130,18 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
 
   /** Resolves stream URLs ahead of time so the next track starts instantly. */
   app.post("/api/prepare/:id", async (req) => {
-    const r = await resolveStreams(videoId(req.params));
+    const id = videoId(req.params);
+    const r = await resolveStreams(id);
+    if (!savedFile(id)) warmHead(id).catch(() => {});
     return { id: r.id, title: r.title, duration: r.duration, hasSdVideo: !!r.video };
   });
 
-  app.get("/api/stream/:id/audio", (req, reply) => proxyStream(req, reply, videoId(req.params), "audio"));
+  app.get("/api/stream/:id/audio", (req, reply) => {
+    const id = videoId(req.params);
+    // Already in the music library: play that copy, no YouTube needed.
+    const local = savedFile(id);
+    return local ? serveFile(req, reply, local, "audio/mp4") : proxyStream(req, reply, id, "audio");
+  });
 
   app.get("/api/stream/:id/video", async (req, reply) => {
     const id = videoId(req.params);
@@ -250,6 +257,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
 
   pruneCache().catch(() => {});
   startDaylistTimer();
+  loadSavedIndex().catch(() => {});
   return { port, tools: found, close: () => app.close() };
 }
 

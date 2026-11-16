@@ -24,6 +24,26 @@ function parseRange(header: unknown, total: number): { start: number; end: numbe
   return { start, end };
 }
 
+/** Start of the next tracks' audio, fetched while the current one plays so the switch has no wait. */
+const HEAD_BYTES = 1024 * 1024;
+const heads = new Map<string, { url: string; total: number; data: Buffer }>();
+
+export async function warmHead(id: string): Promise<void> {
+  if (heads.has(id)) return;
+  const { audio } = await resolveStreams(id);
+  const total = contentLength(audio.url);
+  if (!total) return;
+  const res = await getStream(audio.url, audio.headers, { start: 0, end: Math.min(HEAD_BYTES, total) - 1 });
+  if (res.statusCode !== 200 && res.statusCode !== 206) {
+    res.resume();
+    return;
+  }
+  const parts: Buffer[] = [];
+  for await (const c of res) parts.push(c as Buffer);
+  heads.set(id, { url: audio.url, total, data: Buffer.concat(parts) });
+  while (heads.size > 6) heads.delete(heads.keys().next().value!);
+}
+
 /**
  * Proxies a googlevideo stream with seeking. googlevideo URLs are bound to the IP that resolved them, so the bytes
  * must flow through this server; see upstream.ts for why ranges go in the query string and 403s are retried.
@@ -57,6 +77,23 @@ export async function proxyStream(req: FastifyRequest, reply: FastifyReply, id: 
   };
 
   let fmt = await pick(false);
+
+  // The opening bytes were fetched ahead of time: answer from memory, the browser asks for the rest.
+  const head = kind === "audio" ? heads.get(id) : undefined;
+  if (head && head.url === fmt.url) {
+    const wanted = parseRange(req.headers.range, head.total) ?? { start: 0, end: head.total - 1 };
+    if (wanted.start < head.data.length) {
+      const end = Math.min(wanted.end, head.data.length - 1);
+      reply.code(206);
+      reply.header("content-type", fmt.mime);
+      reply.header("cache-control", "no-store");
+      reply.header("accept-ranges", "bytes");
+      reply.header("content-range", `bytes ${wanted.start}-${end}/${head.total}`);
+      reply.header("content-length", end - wanted.start + 1);
+      return reply.send(head.data.subarray(wanted.start, end + 1));
+    }
+  }
+
   let up = await open(fmt);
   // Expired, or still refused after retries on fresh connections: resolve again once.
   if (up.res && (up.res.statusCode === 403 || up.res.statusCode === 410)) {
