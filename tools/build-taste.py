@@ -35,7 +35,7 @@ MOODS = [
     (r"synth|retrowave", ["synthwave"]),
     (r"metal|bite_night", ["metal"]),
     (r"club|trance|happy_hour", ["dance"]),
-    (r"sing|shower|easy_00s|function_band", ["sing-along"]),
+    (r"sing|shower|easy_00s|function_band|untitled", ["sing-along"]),
     (r"rock_anthems|rock_classics|twist_of_rock|nirvana|badass|beatles", ["rock"]),
     (r"暗殺|香港|kasih", ["asian pop"]),
     (r"ink_spots|java_jive", ["oldies"]),
