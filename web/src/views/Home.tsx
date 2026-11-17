@@ -147,7 +147,9 @@ function MixCard({ id, name, tracks }: { id: string; name: string; tracks: Track
 }
 
 function MadeForYou() {
-  const mixes = useLibrary((s) => s.playlists.filter((p) => p.id.startsWith("mix-") && p.tracks.length));
+  // Select the stable array and filter here: a selector returning a new array each time loops forever in zustand 5.
+  const playlists = useLibrary((s) => s.playlists);
+  const mixes = playlists.filter((p) => p.id.startsWith("mix-") && p.tracks.length);
   const load = useLibrary((s) => s.load);
   const t = useT();
 
