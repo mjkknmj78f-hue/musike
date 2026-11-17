@@ -8,6 +8,8 @@ import { Rail } from "./components/Rail";
 import { TitleBar } from "./components/TitleBar";
 import { desktop } from "./lib/desktop";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { ProfilePicker } from "./components/Profiles";
+import { useProfiles } from "./lib/profiles";
 import { Toasts } from "./components/Toasts";
 import { TrackMenu } from "./components/TrackMenu";
 import { FloatingVideo, Theater } from "./components/Video";
@@ -49,6 +51,7 @@ export default function App() {
 
   useEffect(() => {
     void loadLibrary();
+    void useProfiles.getState().init();
   }, [loadLibrary]);
 
   // "Save to library" only exists on a server with a music folder set (never on Android).
@@ -163,6 +166,7 @@ export default function App() {
       <ShortcutsDialog />
       <SettingsDialog />
       <Toasts />
+      <ProfilePicker />
     </div>
   );
 }

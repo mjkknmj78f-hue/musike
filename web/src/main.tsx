@@ -9,9 +9,13 @@ import { desktop } from "./lib/desktop";
 import "./styles.css";
 import "./tv/tv.css";
 import { installTvMode } from "./tv/tvMode";
+import { installProfileHeader } from "./lib/profiles";
 
 // The desktop app ships its files locally; a service worker would only risk serving an old version after updates.
 if (!desktop) registerSW({ immediate: true });
+
+// Every API call says which listener profile it is for (set before the app makes any).
+installProfileHeader();
 
 // Android TV: spatial D-pad navigation + 10-foot styling (no-op elsewhere).
 installTvMode();

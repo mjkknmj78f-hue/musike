@@ -15,6 +15,7 @@ import { HttpError, VIDEO_ID } from "./types.js";
 import { downloadHd, pruneCache, resolveStreams } from "./ytdlp.js";
 import { clearFinished, enqueue, listJobs, loadSavedIndex, savedFile, saveEnabled, type AlbumInfo } from "./save.js";
 import { ensureDaylist, recordPlay, startDaylistTimer } from "./daylist.js";
+import { createProfile, currentProfile, listProfiles, profileFor, runAs, updateProfile, type Profile } from "./profiles.js";
 
 function videoId(params: unknown): string {
   const id = (params as { id?: string }).id ?? "";
@@ -44,8 +45,14 @@ export interface RunningServer {
 /** Builds the Musike HTTP server (API + web app) and starts listening. */
 export async function startServer(opts: StartOptions = {}): Promise<RunningServer> {
   library.useLibraryStorage(fileStorage());
+  library.useProfileResolver(currentProfile);
   const found = await refreshTools();
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "warn" } });
+
+  // Whose library a request is for (see profiles.ts). done() runs the handler inside that context.
+  app.addHook("preHandler", (req, _reply, done) => {
+    profileFor(req.headers["x-musike-profile"]).then((id) => runAs(id, done), () => done());
+  });
 
   app.setErrorHandler((err, req, reply) => {
     const e = err as Error & { statusCode?: number };
@@ -153,6 +160,14 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   });
 
   // Library
+
+  // Listener profiles
+
+  app.get("/api/profiles", async () => ({ profiles: await listProfiles() }));
+  app.post("/api/profiles", async (req) => createProfile((req.body ?? {}) as Partial<Profile>));
+  app.patch("/api/profiles/:pid", async (req) =>
+    updateProfile((req.params as { pid: string }).pid, (req.body ?? {}) as Partial<Profile>),
+  );
 
   app.get("/api/library", () => library.getLibrary());
 

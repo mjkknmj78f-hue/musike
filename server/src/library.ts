@@ -7,35 +7,47 @@ const HISTORY_LIMIT = 60;
 
 /** Where the library is kept: a file on the server and the desktop app, app storage on Android. */
 export interface LibraryStorage {
-  read(): Promise<string | null>;
-  write(json: string): Promise<void>;
+  /** `profile` is "default" unless the server has listener profiles (see profiles.ts). */
+  read(profile: string): Promise<string | null>;
+  write(json: string, profile: string): Promise<void>;
 }
 
 let storage: LibraryStorage | null = null;
-let state: Library | null = null;
-let writeChain: Promise<void> = Promise.resolve();
+const states = new Map<string, Library>();
+const writeChains = new Map<string, Promise<void>>();
+let currentProfile: () => string = () => "default";
 
 /** Set once at startup, before any request. */
 export function useLibraryStorage(s: LibraryStorage) {
   storage = s;
-  state = null;
+  states.clear();
+}
+
+/** Each listener profile has its own library; the server tells this module whose request it is serving. */
+export function useProfileResolver(fn: () => string) {
+  currentProfile = fn;
 }
 
 const randomUUID = () => globalThis.crypto.randomUUID();
 
 async function load(): Promise<Library> {
-  if (state) return state;
+  const profile = currentProfile();
+  const cached = states.get(profile);
+  if (cached) return cached;
   if (!storage) throw new Error("Library storage not configured");
-  const json = await storage.read();
-  state = json ? (JSON.parse(json) as Library) : { favorites: [], playlists: [], history: [] };
-  return state;
+  const json = await storage.read(profile);
+  const lib = json ? (JSON.parse(json) as Library) : { favorites: [], playlists: [], history: [] };
+  states.set(profile, lib);
+  return lib;
 }
 
 /** Serialized writes so concurrent requests never interleave. */
 function persist(): Promise<void> {
-  const snapshot = JSON.stringify(state, null, 2);
-  writeChain = writeChain.then(() => storage!.write(snapshot));
-  return writeChain;
+  const profile = currentProfile();
+  const snapshot = JSON.stringify(states.get(profile), null, 2);
+  const chain = (writeChains.get(profile) ?? Promise.resolve()).then(() => storage!.write(snapshot, profile));
+  writeChains.set(profile, chain);
+  return chain;
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
@@ -216,7 +228,7 @@ export async function importLibrary(input: unknown, mode: "merge" | "replace"): 
   const result: ImportResult = { playlistsAdded: 0, playlistsMerged: 0, tracksAdded: 0, favoritesAdded: 0 };
 
   if (mode === "replace") {
-    state = incoming;
+    states.set(currentProfile(), incoming);
     result.playlistsAdded = incoming.playlists.length;
     result.favoritesAdded = incoming.favorites.length;
     result.tracksAdded = incoming.playlists.reduce((n, p) => n + p.tracks.length, 0);

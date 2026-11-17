@@ -3,6 +3,7 @@ import { readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
 import * as library from "./library.js";
+import { currentProfile, listProfiles, runAs } from "./profiles.js";
 import { radio } from "./search.js";
 import type { Track } from "./types.js";
 
@@ -41,35 +42,38 @@ export const DAYLIST_ID = "daylist";
 const SIZE = 40;
 const NEW_SHARE = 1 / 3;
 
-const tastePath = () => path.join(config.dataDir, "taste.json");
-const learnedPath = () => path.join(config.dataDir, "daylist.json");
+// Per listener profile; the first profile keeps the original file names.
+const suffix = () => (currentProfile() === "default" ? "" : `-${currentProfile()}`);
+const tastePath = () => path.join(config.dataDir, `taste${suffix()}.json`);
+const learnedPath = () => path.join(config.dataDir, `daylist${suffix()}.json`);
 
-let taste: Taste = { tracks: {} };
-let tasteMtime = 0;
-let learned: Learned | null = null;
-let busy: Promise<unknown> | null = null;
+const tastes = new Map<string, { taste: Taste; mtime: number }>();
+const learnedBy = new Map<string, Learned>();
+const busyBy = new Map<string, Promise<unknown>>();
 
 async function loadTaste(): Promise<Taste> {
-  if (!existsSync(tastePath())) return taste;
+  const cached = tastes.get(currentProfile());
+  if (!existsSync(tastePath())) return cached?.taste ?? { tracks: {} };
   const m = (await stat(tastePath())).mtimeMs;
-  if (m !== tasteMtime) {
-    taste = JSON.parse(await readFile(tastePath(), "utf8")) as Taste;
-    tasteMtime = m;
-  }
+  if (cached?.mtime === m) return cached.taste;
+  const taste = JSON.parse(await readFile(tastePath(), "utf8")) as Taste;
+  tastes.set(currentProfile(), { taste, mtime: m });
   return taste;
 }
 
 async function loadLearned(): Promise<Learned> {
-  if (learned) return learned;
-  learned = existsSync(learnedPath())
+  const cached = learnedBy.get(currentProfile());
+  if (cached) return cached;
+  const learned: Learned = existsSync(learnedPath())
     ? (JSON.parse(await readFile(learnedPath(), "utf8")) as Learned)
     : { plays: {}, artists: {} };
+  learnedBy.set(currentProfile(), learned);
   return learned;
 }
 
 async function saveLearned() {
   const tmp = `${learnedPath()}.tmp`;
-  await writeFile(tmp, JSON.stringify(learned));
+  await writeFile(tmp, JSON.stringify(learnedBy.get(currentProfile())));
   await rename(tmp, learnedPath());
 }
 
@@ -126,7 +130,8 @@ async function build(salt = ""): Promise<{ key: string; name: string; tracks: Tr
   const now = new Date();
   const { slot, key, day } = slotAt(now);
   const rand = rng(key + salt);
-  const recent = new Set((await library.getLibrary()).history.slice(0, 30).map((h) => h.id));
+  const lib = await library.getLibrary();
+  const recent = new Set(lib.history.slice(0, 30).map((h) => h.id));
 
   const artistMax = Math.max(1, ...Object.values(l.artists).map((a) => a[slot] ?? 0));
   const pool = new Map<string, { track: Track; w: number; tags: string[] }>();
@@ -134,6 +139,8 @@ async function build(salt = ""): Promise<{ key: string; name: string; tracks: Tr
     let w = (tt.w[slot] ?? 0.3) * (tt.liked ? 1.5 : 1);
     pool.set(id, { track: tt.track, w, tags: tt.tags });
   }
+  // Favourites count too, so a profile without a Spotify import still gets a daylist.
+  for (const f of lib.favorites) if (!pool.has(f.id)) pool.set(f.id, { track: f, w: 0.5, tags: [] });
   for (const [id, p] of Object.entries(l.plays)) {
     const e = pool.get(id) ?? { track: p.track, w: 0.3, tags: [] };
     e.w += 0.6 * Math.min(p.n[slot] ?? 0, 5) / 5;
@@ -183,10 +190,12 @@ async function build(salt = ""): Promise<{ key: string; name: string; tracks: Tr
 
 /** Rebuilds the daylist playlist when the time slot has changed (or when forced). */
 export async function ensureDaylist(force = false): Promise<{ key: string; name: string } | null> {
+  const busy = busyBy.get(currentProfile());
   if (busy) await busy.catch(() => {});
   const t = await loadTaste();
   const l = await loadLearned();
-  if (!Object.keys(t.tracks).length && !Object.keys(l.plays).length) return null;
+  const favs = (await library.getLibrary()).favorites.length;
+  if (!Object.keys(t.tracks).length && !Object.keys(l.plays).length && favs < 5) return null;
   const { key } = slotAt(new Date());
   const has = (await library.getLibrary()).playlists.some((p) => p.id === DAYLIST_ID);
   if (!force && has && l.current?.key === key) return l.current;
@@ -197,16 +206,18 @@ export async function ensureDaylist(force = false): Promise<{ key: string; name:
     await saveLearned();
     return l.current;
   })();
-  busy = job;
+  busyBy.set(currentProfile(), job);
   try {
     return await job;
   } finally {
-    busy = null;
+    busyBy.delete(currentProfile());
   }
 }
 
 export function startDaylistTimer() {
-  const tick = () => ensureDaylist().catch(() => {});
+  const tick = async () => {
+    for (const p of await listProfiles()) await runAs(p.id, () => ensureDaylist()).catch(() => {});
+  };
   setTimeout(tick, 10_000);
   setInterval(tick, 5 * 60_000).unref();
 }
