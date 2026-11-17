@@ -15,6 +15,7 @@ import { HttpError, VIDEO_ID } from "./types.js";
 import { downloadHd, pruneCache, resolveStreams } from "./ytdlp.js";
 import { clearFinished, enqueue, listJobs, loadSavedIndex, savedFile, saveEnabled, type AlbumInfo } from "./save.js";
 import { ensureDaylist, recordPlay, startDaylistTimer } from "./daylist.js";
+import { ensureMixes } from "./mixes.js";
 import { createProfile, currentProfile, listProfiles, profileFor, runAs, updateProfile, type Profile } from "./profiles.js";
 
 function videoId(params: unknown): string {
@@ -207,6 +208,15 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
 
   app.get("/api/daylist", async () => ({ daylist: await ensureDaylist() }));
   app.post("/api/daylist/refresh", async () => ({ daylist: await ensureDaylist(true) }));
+  // "Made for you" mixes (mixes.ts). GET starts today's build if needed and answers straight away.
+  app.get("/api/mixes", () => {
+    ensureMixes().catch(() => {});
+    return { ok: true };
+  });
+  app.post("/api/mixes/refresh", async () => {
+    await ensureMixes(true);
+    return { ok: true };
+  });
 
   app.post("/api/playlists", async (req) => {
     const body = (req.body ?? {}) as { name?: unknown; tracks?: unknown };
@@ -271,7 +281,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   await app.listen({ port, host });
 
   pruneCache().catch(() => {});
-  startDaylistTimer();
+  startDaylistTimer(() => ensureMixes());
   loadSavedIndex().catch(() => {});
   return { port, tools: found, close: () => app.close() };
 }

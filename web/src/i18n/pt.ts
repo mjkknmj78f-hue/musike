@@ -428,6 +428,11 @@ export const pt: Messages = {
     count: (n) => `${n} músicas para agora · muda ao longo do dia`,
     refresh: "Nova mistura",
   },
+  mixes: {
+    title: "Feito para você",
+    because: "Porque você ouve",
+    radio: "Rádio do artista",
+  },
   profiles: {
     whoIsListening: "Quem está ouvindo?",
     section: "Perfil",

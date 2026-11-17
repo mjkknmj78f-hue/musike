@@ -434,6 +434,11 @@ export const en = {
     count: (n: number) => `${n} songs for right now · changes through the day`,
     refresh: "New mix",
   },
+  mixes: {
+    title: "Made for you",
+    because: "Because you listen to",
+    radio: "Artist radio",
+  },
   profiles: {
     whoIsListening: "Who's listening?",
     section: "Profile",

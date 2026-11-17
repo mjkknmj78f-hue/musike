@@ -102,7 +102,7 @@ export async function recordPlay(track: Track) {
 }
 
 /** Small seeded PRNG, so a daylist stays the same for its whole time slot unless refreshed. */
-function rng(seed: string) {
+export function rng(seed: string) {
   let h = 1779033703 ^ seed.length;
   for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 3432918353), (h = (h << 13) | (h >>> 19));
   return () => {
@@ -113,7 +113,7 @@ function rng(seed: string) {
 }
 
 /** Weighted sampling without replacement (Efraimidis–Spirakis). */
-function sample<T>(items: { item: T; w: number }[], n: number, rand: () => number): T[] {
+export function sample<T>(items: { item: T; w: number }[], n: number, rand: () => number): T[] {
   return items
     .filter((x) => x.w > 0)
     .map((x) => ({ item: x.item, k: Math.pow(rand(), 1 / x.w) }))
@@ -214,9 +214,46 @@ export async function ensureDaylist(force = false): Promise<{ key: string; name:
   }
 }
 
-export function startDaylistTimer() {
+export interface Stats {
+  songs: Map<string, { track: Track; score: number }>;
+  /** Keyed by lower-case main artist. */
+  artists: Map<string, { name: string; score: number }>;
+}
+
+/**
+ * What this profile listens to most: plays in Musike count most, then recent history, favourites and liked songs
+ * from the Spotify import, then the rest of the imported playlists.
+ */
+export async function listeningStats(): Promise<Stats> {
+  const [t, l, lib] = await Promise.all([loadTaste(), loadLearned(), library.getLibrary()]);
+  const songs: Stats["songs"] = new Map();
+  const add = (track: Track, score: number) => {
+    const e = songs.get(track.id) ?? { track, score: 0 };
+    e.score += score;
+    songs.set(track.id, e);
+  };
+  for (const tt of Object.values(t.tracks)) add(tt.track, tt.liked ? 1 : 0.2);
+  for (const f of lib.favorites) add(f, 1);
+  for (const h of lib.history) add(h, 1);
+  for (const p of Object.values(l.plays)) add(p.track, 3 * Object.values(p.n).reduce((a, b) => a + (b ?? 0), 0));
+  const artists: Stats["artists"] = new Map();
+  for (const { track, score } of songs.values()) {
+    const name = track.artist.split(/,| & | feat\.? /i)[0]!.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const e = artists.get(key) ?? { name, score: 0 };
+    e.score += score;
+    artists.set(key, e);
+  }
+  return { songs, artists };
+}
+
+export function startDaylistTimer(after?: () => Promise<unknown>) {
   const tick = async () => {
-    for (const p of await listProfiles()) await runAs(p.id, () => ensureDaylist()).catch(() => {});
+    for (const p of await listProfiles()) {
+      await runAs(p.id, () => ensureDaylist()).catch(() => {});
+      if (after) await runAs(p.id, after).catch(() => {});
+    }
   };
   setTimeout(tick, 10_000);
   setInterval(tick, 5 * 60_000).unref();

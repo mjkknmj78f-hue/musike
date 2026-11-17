@@ -114,6 +114,64 @@ function DaylistCard() {
   );
 }
 
+/** "Made for you": the server's daily mixes (server/src/mixes.ts), ordinary playlists with ids "mix-…". */
+function MixCard({ id, name, tracks }: { id: string; name: string; tracks: Track[] }) {
+  const playList = usePlayer((s) => s.playList);
+  const t = useT();
+  const because = name.startsWith("Because you listen to ");
+  return (
+    <div className="group w-40 shrink-0 snap-start md:w-44">
+      <div className="relative">
+        <Link to={paths.playlist(id)} className="grid aspect-square w-full grid-cols-2 overflow-hidden rounded-[14px] ring-1 ring-line">
+          {tracks.slice(0, 4).map((c) => (
+            <Artwork key={c.id} src={c.thumb} className="size-full" />
+          ))}
+        </Link>
+        <button
+          type="button"
+          onClick={() => playList(tracks, 0)}
+          aria-label={t.common.playX(name)}
+          className="absolute right-2 bottom-2 grid size-11 place-items-center rounded-full bg-accent text-accent-ink shadow-[0_6px_18px_rgb(0_0_0/0.35)] transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+        >
+          <PlayIcon size={18} weight="fill" />
+        </button>
+      </div>
+      <Link to={paths.playlist(id)} className="block">
+        <span className="mt-2 block text-xs font-medium text-fg-3">{because ? t.mixes.because : t.mixes.radio}</span>
+        <span className="line-clamp-2 text-sm leading-snug font-semibold">
+          {because ? name.slice("Because you listen to ".length) : name}
+        </span>
+      </Link>
+    </div>
+  );
+}
+
+function MadeForYou() {
+  const mixes = useLibrary((s) => s.playlists.filter((p) => p.id.startsWith("mix-") && p.tracks.length));
+  const load = useLibrary((s) => s.load);
+  const t = useT();
+
+  // Ask the server to build today's mixes; on the first day it takes a minute, so look again after that.
+  useEffect(() => {
+    if (!capabilities.engineSettings) return;
+    void fetch("/api/mixes").catch(() => {});
+    const timer = setTimeout(() => void load(), 60_000);
+    return () => clearTimeout(timer);
+  }, [load]);
+
+  if (!mixes.length) return null;
+  const ordered = [...mixes].sort((a, b) => a.id.localeCompare(b.id));
+  return (
+    <Section title={t.mixes.title}>
+      <div className="no-scrollbar flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto px-4 md:scroll-px-6 md:px-6">
+        {ordered.map((p) => (
+          <MixCard key={p.id} id={p.id} name={p.name} tracks={p.tracks} />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 export default function Home() {
   const { favorites, playlists, history, status } = useLibrary();
   const playList = usePlayer((s) => s.playList);
@@ -176,7 +234,7 @@ export default function Home() {
                 </span>
               }
             />
-            {playlists.slice(0, 6).map((p) => (
+            {playlists.filter((p) => p.id !== DAYLIST_ID && !p.id.startsWith("mix-")).slice(0, 6).map((p) => (
               <Shortcut
                 key={p.id}
                 to={paths.playlist(p.id)}
@@ -186,6 +244,8 @@ export default function Home() {
               />
             ))}
           </div>}
+
+          <MadeForYou />
 
           {show.homeRecent && history.length > 0 && (
             <Section
